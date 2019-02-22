@@ -225,7 +225,7 @@ describe('Secure connection', function() {
     });
   });
   it('STARTTLS Callback', function(done){
-    var server = new RAIServer();
+    var server = new RAIServer({ debug: true} );
     server.listen(PORT_NUMBER, function(err){
 
       server.on("connect", function(socket){
@@ -249,25 +249,19 @@ describe('Secure connection', function() {
         });
       });
 
-      var client = netlib.connect(PORT_NUMBER, function(){
-        var sslcontext = crypto.createCredentials();
-        var pair = tlslib.createSecurePair(sslcontext, false);
+      var sslcontext = tlslib.createSecureContext();
+      var clientSocket = tlslib.connect({port: PORT_NUMBER, secureContext: sslcontext}, function(){
 
-        pair.encrypted.pipe(client);
-        client.pipe(pair.encrypted);
-        pair.fd = client.fd;
-
-        pair.on("secure", function(){
-          pair.cleartext.on("data", function(chunk){
-            try {
-              assert.equal(chunk.toString(), "TEST\r\n");
-            } catch (err) {
-              return done(err);
-            }
-            pair.cleartext.end();
-          });
+        clientSocket.on("data", function(chunk){
+          try {
+            assert.equal(chunk.toString(), "TEST\r\n");
+          } catch (err) {
+            return done(err);
+          }
+          clientSocket.end();
         });
       });
+
 
     });
   });
@@ -311,16 +305,13 @@ describe('Secure connection', function() {
 
         client.on("data", function(chunk){
           if(chunk.toString("utf-8").trim() == "OK"){
+
             var sslcontext = crypto.createCredentials();
-            var pair = tlslib.createSecurePair(sslcontext, false);
+            const secureClient = tlslib.connect({ socket: client, secureContext: sslcontext});
 
-            pair.encrypted.pipe(client);
-            client.pipe(pair.encrypted);
-            pair.fd = client.fd;
-
-            pair.on("secure", function(){
-              pair.cleartext.write("OK\r\n");
-              pair.cleartext.end();
+            secureClient.on("secureConnect", function(){
+              secureClient.write("OK\r\n");
+              secureClient.end();
             });
           }
         });
@@ -364,416 +355,468 @@ describe('Secure connection', function() {
     });
   });
 });
-//
-//exports["Client commands"] = {
-//    "Receive Simple Command":  function(test){
-//        var server = new RAIServer();
-//        server.listen(PORT_NUMBER, function(err){
-//            
-//            server.on("connect", function(socket){
-//                
-//                socket.on("command", function(command, payload){
-//                    test.equal(command, "STATUS");
-//                    test.equal(payload.toString(), "");
-//                    socket.end();
-//                    server.end(function(){
-//                        test.done();
-//                    });
-//                });
-//                
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//            });
-//            
-//            var client = netlib.connect(PORT_NUMBER, function(){
-//                client.write("STATUS\r\n");
-//            });
-//
-//        });
-//    },
-//    "Receive Command with payload":  function(test){
-//        var server = new RAIServer();
-//        server.listen(PORT_NUMBER, function(err){
-//            
-//            server.on("connect", function(socket){
-//                
-//                socket.on("command", function(command, payload){
-//                    test.equal(command, "MAIL");
-//                    test.equal(payload.toString(), "TO:");
-//                    socket.end();
-//                    
-//                    server.end(function(){
-//                        test.done();
-//                    });
-//                });
-//                
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//            });
-//            
-//            var client = netlib.connect(PORT_NUMBER, function(){
-//                client.write("MAIL TO:\r\n");
-//            });
-//
-//        });
-//    }
-//};
-//
-//exports["Data mode"] = {
-//    "DATA mode": function(test){
-//        var server = new RAIServer(),
-//            datapayload = "tere\r\nvana kere";
-//        server.listen(PORT_NUMBER, function(err){
-//            
-//            server.on("connect", function(socket){
-//                
-//                socket.startDataMode();
-//
-//                test.expect(2);
-//
-//                socket.on("data", function(chunk){
-//                    test.equal(datapayload, chunk.toString());
-//                });
-//                
-//                socket.on("ready", function(){
-//                    test.ok(1,"Data ready");
-//                    server.end(function(){
-//                        test.done();
-//                    });
-//                });
-//                
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//            });
-//            
-//            var client = netlib.connect(PORT_NUMBER, function(){
-//                client.write(datapayload+"\r\n.\r\n");
-//                client.end();
-//            });
-//
-//        });
-//    },
-//    "Small chunks DATA mode": function(test){
-//        var server = new RAIServer(),
-//            datapayload = "tere\r\nvana kere õäöü\r\n.\r",
-//            databytes = [],
-//            fullpayload = datapayload+"\r\n.\r\n";
-//        server.listen(PORT_NUMBER, function(err){
-//            
-//            server.on("connect", function(socket){
-//                
-//                socket.startDataMode();
-//
-//                test.expect(1);
-//
-//                socket.on("data", function(chunk){
-//                    databytes = databytes.concat(Array.prototype.slice.call(chunk));
-//                });
-//                
-//                socket.on("ready", function(){
-//                    test.equal(new Buffer(databytes).toString("utf-8"), datapayload);
-//                    server.end(function(){
-//                        test.done();
-//                    });
-//                });
-//                
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//                
-//                for(var i=0, len = fullpayload.length; i<len; i++){
-//                    socket._onReceiveData(new Buffer(fullpayload.charAt(i), "utf-8").toString("binary"));
-//                }
-//                
-//            });
-//            
-//            var client = netlib.connect(PORT_NUMBER, function(){
-//                client.end();
-//            });
-//
-//        });
-//    }
-//};
-//
-//exports["Pipelining support"] = {
-//    "Pipelining": function(test){
-//        var server = new RAIServer();
-//        server.listen(PORT_NUMBER, function(err){
-//            
-//            test.expect(8);
-//            
-//            server.on("connect", function(socket){
-//                
-//                socket.on("command", function(command, payload){
-//                    if(command == "STATUS"){
-//                        test.ok(1, "Status received");
-//                    }else if(command=="DATA"){
-//                        test.ok(1, "data command received");
-//                        socket.startDataMode();
-//                    }else if(command=="END"){
-//                        test.ok(1, "all received");
-//                    }else{
-//                        test.ok(0, "Unexpected command: "+command);
-//                    }
-//                });
-//                
-//                socket.on("data", function(chunk){
-//                    test.equal(chunk.toString(), "TE\r\nST");
-//                });
-//                
-//                socket.on("ready", function(){
-//                    test.ok(1, "Data mode ended");
-//                });
-//                
-//                socket.on("end", function(){
-//                    test.ok(1, "All ready");
-//                    server.end(function(){
-//                        test.done();
-//                    });
-//                });
-//                
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//            });
-//            
-//            var client = netlib.connect(PORT_NUMBER, function(){
-//                client.write("STATUS\r\nSTATUS\r\nSTATUS\r\nDATA\r\nTE\r\nST\r\n.\r\nEND\r\n");
-//                client.end();
-//            });
-//
-//        });
-//    }
-//};
-//
-//exports["Timeout tests"] = {
-//    "Timeout": function(test){
-//        var server = new RAIServer({timeout: 300, disconnectOnTimeout: true});
-//        test.expect(3);
-//        server.listen(PORT_NUMBER, function(err){
-//            
-//            server.on("connect", function(socket){
-//                test.ok(socket, "Client connected");
-//                
-//                socket.on("timeout", function(){
-//                    test.ok(1, "Connection closed");
-//                    
-//                    server.end(function(){
-//                        test.done();
-//                    });
-//                });
-//                
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//            });
-//            
-//            var client = netlib.connect(PORT_NUMBER, function(){
-//                test.ok(1, "Connected to server");
-//            });
-//
-//        });
-//    },
-//    "Timeout with TLS":  function(test){
-//        var server = new RAIServer({timeout: 300, disconnectOnTimeout: true});
-//        server.listen(PORT_NUMBER, function(err){
-//            
-//            test.expect(3);
-//            
-//            server.on("connect", function(socket){
-//                
-//                socket.startTLS();
-//                socket.on("tls", function(){
-//                    test.ok(1, "Secure connection opened");
-//                    socket.send("TEST");
-//                });
-//                
-//                socket.on("timeout", function(){
-//                    test.ok(1, "Timeout occurred");
-//                    server.end(function(){
-//                        test.done();
-//                    });
-//                });
-//                
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//            });
-//            
-//            var client = netlib.connect(PORT_NUMBER, function(){
-//                var sslcontext = crypto.createCredentials();
-//                var pair = tlslib.createSecurePair(sslcontext, false);
-//                
-//                pair.encrypted.pipe(client);
-//                client.pipe(pair.encrypted);
-//                pair.fd = client.fd;
-//                
-//                pair.on("secure", function(){
-//                    test.ok(1, "secure connection");
-//                });
-//            });
-//
-//        });
-//    } 
-//};
-//
-//exports["Client Mockup"] = {
-//    "All command": function(test){
-//        var server = new RAIServer();
-//        server.listen(PORT_NUMBER, function(err){
-//            server.on("connect", function(socket){
-//                socket.send("220 Welcome");
-//                socket.on("command", function(command, payload){
-//                    switch(command) {
-//                        case "HELO": socket.send("250 HI"); break;
-//                        case "NOOP": socket.send("250 OK"); break;
-//                        case "QUIT": socket.send("221 Bye"); socket.end(); break;
-//                        default: socket.send("500");
-//                    }
-//                });
-//
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//            });
-//
-//            var cmds = ["HELO", "NOOP", "QUIT"];
-//            runClientMockup(PORT_NUMBER, "localhost", cmds, function(lastResponse, allResponses){
-//                allResponses = allResponses.map(function(value) { return value.toString("utf-8"); });
-//                test.deepEqual(allResponses, [ "220 Welcome\r\n", "250 HI\r\n", "250 OK\r\n", "221 Bye\r\n" ]);
-//                server.end(function(){
-//                    test.done();
-//                });
-//
-//            });
-//
-//        });
-//    },
-//    "Last commands":  function(test){
-//        var server = new RAIServer();
-//        server.listen(PORT_NUMBER, function(err){
-//            server.on("connect", function(socket){
-//                socket.send("220 HI");
-//                socket.on("command", function(command, payload){
-//                    switch(command) {
-//                        case "HELO": socket.send("250 HI"); break;
-//                        case "NOOP": socket.send("250 OK"); break;
-//                        case "QUIT": socket.send("221 Bye"); socket.end(); break;
-//                        default: socket.send("500");
-//                    }
-//                });
-//
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//            });
-//
-//            var cmds = ["HELO", "NOOP", "QUIT"];
-//            runClientMockup(PORT_NUMBER, "localhost", cmds, function(lastResponse){
-//                test.equal(lastResponse.toString("utf-8"), "221 Bye\r\n");
-//                server.end(function(){
-//                    test.done();
-//                });
-//
-//            });
-//
-//        });
-//    },
-//    "All command(STARTTLS)": function(test){
-//        var server = new RAIServer();
-//        server.listen(PORT_NUMBER, function(err){
-//
-//            test.expect(2);
-//
-//            server.on("connect", function(socket){
-//                socket.tlsStatus = 0;
-//                socket.send("220 Welcome");
-//                socket.on("command", function(command, payload){
-//                    switch(command){
-//                        case "EHLO":
-//                            if(socket.tlsStatus===0){
-//                                socket.send("250-HI\r\n250 STARTTLS");
-//                            }else{
-//                                socket.send("250 HI");
-//                            }
-//                            break;
-//                        case "NOOP": socket.send("250 OK"); break;
-//                        case "QUIT": socket.send("221 Bye"); socket.end(); break;
-//                        case "STARTTLS": socket.startTLS(); socket.send("220 Go ahead"); break;
-//                        default: socket.send("500");
-//                    }
-//                });
-//
-//                socket.on("tls", function(){
-//                    test.ok(1, "Secure connection opened");
-//                    socket.tlsStatus = 1;
-//                });
-//
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//            });
-//
-//            var cmds = ["EHLO", "STARTTLS", "EHLO", "NOOP", "QUIT"];
-//            runClientMockup(PORT_NUMBER, "localhost", cmds, function(lastResponse, allResponses){
-//                allResponses = allResponses.map(function(value) { return value.toString("utf-8"); });
-//                test.deepEqual(allResponses, ["220 Welcome\r\n", "250-HI\r\n250 STARTTLS\r\n", "220 Go ahead\r\n",
-//                                              "250 HI\r\n", "250 OK\r\n", "221 Bye\r\n" ]);
-//                server.end(function(){
-//                    test.done();
-//                });
-//
-//            });
-//
-//        });
-//    },
-//    "Last commands(STARTTLS)":  function(test){
-//        var server = new RAIServer();
-//        server.listen(PORT_NUMBER, function(err){
-//
-//            test.expect(2);
-//
-//            server.on("connect", function(socket){
-//                socket.tlsStatus = 0;
-//                socket.send("220 Welcome");
-//                socket.on("command", function(command, payload){
-//                    switch(command){
-//                        case "EHLO":
-//                            if(socket.tlsStatus===0){
-//                                socket.send("250-HI\r\n250 STARTTLS");
-//                            }else{
-//                                socket.send("250 HI");
-//                            }
-//                            break;
-//                        case "NOOP": socket.send("250 OK"); break;
-//                        case "QUIT": socket.send("221 Bye"); socket.end(); break;
-//                        case "STARTTLS": socket.startTLS(); socket.send("220 Go ahead"); break;
-//                        default: socket.send("500");
-//                    }
-//                });
-//
-//                socket.on("tls", function(){
-//                    test.ok(1, "Secure connection opened");
-//                    socket.tlsStatus = 1;
-//                });
-//
-//                socket.on("error", function(err){
-//                    test.isError(err);
-//                });
-//            });
-//
-//            var cmds = ["EHLO", "STARTTLS", "EHLO", "NOOP", "QUIT"];
-//            runClientMockup(PORT_NUMBER, "localhost", cmds, function(lastResponse){
-//                test.equal(lastResponse.toString("utf-8"), "221 Bye\r\n");
-//                server.end(function(){
-//                    test.done();
-//                });
-//
-//            });
-//
-//        });
-//    }
-//};
+
+describe('Client commands', function() {
+  it('Receive Simple Command', function(done){
+    var server = new RAIServer();
+    server.listen(PORT_NUMBER, function(err){
+
+      server.on("connect", function(socket){
+
+        socket.on("command", function(command, payload){
+          try {
+            assert.equal(command, "STATUS");
+            assert.equal(payload.toString(), "");
+          } catch (err) {
+            return done(err);
+          }
+          socket.end();
+          server.end(function(){
+            return done();
+          });
+        });
+
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+      });
+
+      var client = netlib.connect(PORT_NUMBER, function(){
+        client.write("STATUS\r\n");
+      });
+
+    });
+  });
+
+  it('Receive Command with payload', function(done){
+    var server = new RAIServer();
+    server.listen(PORT_NUMBER, function(err){
+        
+      server.on("connect", function(socket){
+          
+        socket.on("command", function(command, payload){
+          try {
+            assert.equal(command, "MAIL");
+            assert.equal(payload.toString(), "TO:");
+          } catch (err) {
+            return done(err);
+          }
+          socket.end();
+          
+          server.end(function(){
+            return done();
+          });
+        });
+        
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+      });
+      
+      var client = netlib.connect(PORT_NUMBER, function(){
+        client.write("MAIL TO:\r\n");
+      });
+
+    });
+  });
+});
+
+describe('Data mode', function() {
+  it('DATA mode', function(done){
+    var server = new RAIServer(),
+      datapayload = "tere\r\nvana kere";
+    server.listen(PORT_NUMBER, function(err){
+
+      server.on("connect", function(socket){
+
+        socket.startDataMode();
+
+
+        socket.on("data", function(chunk){
+          try {
+            assert.equal(datapayload, chunk.toString());
+          } catch (err) {
+            return done(err);
+          }
+        });
+
+        socket.on("ready", function(){
+          assert.ok(1,"Data ready");
+          server.end(function(){
+            done();
+          });
+        });
+
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+      });
+
+      var client = netlib.connect(PORT_NUMBER, function(){
+        client.write(datapayload+"\r\n.\r\n");
+        client.end();
+      });
+
+    });
+  });
+  it('Small chunks DATA mode', function(done){
+    var server = new RAIServer(),
+      datapayload = "tere\r\nvana kere õäöü\r\n.\r",
+      databytes = [],
+      fullpayload = datapayload+"\r\n.\r\n";
+    server.listen(PORT_NUMBER, function(err){
+
+      server.on("connect", function(socket){
+
+        socket.startDataMode();
+
+        socket.on("data", function(chunk){
+          databytes = databytes.concat(Array.prototype.slice.call(chunk));
+        });
+
+        socket.on("ready", function(){
+          try {
+            assert.equal(new Buffer(databytes).toString("utf-8"), datapayload);
+          } catch (err) {
+            return done(err);
+          }
+          server.end(function(){
+            return done();
+          });
+        });
+
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+
+        for(var i=0, len = fullpayload.length; i<len; i++){
+          socket._onReceiveData(new Buffer(fullpayload.charAt(i), "utf-8").toString("binary"));
+        }
+
+      });
+
+      var client = netlib.connect(PORT_NUMBER, function(){
+        client.end();
+      });
+
+    });
+  });
+});
+
+describe('Pipelining support', function() {
+  it("Pipelining", function(done){
+    var server = new RAIServer();
+    server.listen(PORT_NUMBER, function(err){
+
+      server.on("connect", function(socket){
+
+        socket.on("command", function(command, payload){
+          if(command == "STATUS"){
+            assert.ok(1, "Status received");
+          }else if(command=="DATA"){
+            assert.ok(1, "data command received");
+            socket.startDataMode();
+          }else if(command=="END"){
+            assert.ok(1, "all received");
+          }else{
+            return done(new Error("Unexpected command: "+command));
+          }
+        });
+
+        socket.on("data", function(chunk){
+          try {
+            assert.equal(chunk.toString(), "TE\r\nST");
+          } catch (err) {
+            return done(err);
+          }
+        });
+
+        socket.on("ready", function(){
+          assert.ok(1, "Data mode ended");
+        });
+
+        socket.on("end", function(){
+          assert.ok(1, "All ready");
+          server.end(function(){
+            return done();
+          });
+        });
+
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+      });
+
+      var client = netlib.connect(PORT_NUMBER, function(){
+        client.write("STATUS\r\nSTATUS\r\nSTATUS\r\nDATA\r\nTE\r\nST\r\n.\r\nEND\r\n");
+        client.end();
+      });
+
+    });
+  });
+});
+
+describe('Timeout tests', function() {
+  it('Timeout', function(done){
+    var server = new RAIServer({timeout: 300, disconnectOnTimeout: true});
+
+    server.listen(PORT_NUMBER, function(err){
+
+      server.on("connect", function(socket){
+        try {
+          assert.ok(socket, "Client connected");
+        } catch (err) {
+          return done(err);
+        }
+        socket.on("timeout", function(){
+          assert.ok(1, "Connection closed");
+
+          server.end(function(){
+            return done();
+          });
+        });
+
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+      });
+
+      var client = netlib.connect(PORT_NUMBER, function(){
+        assert.ok(1, "Connected to server");
+      });
+
+    });
+  });
+  it('Timeout with TLS', function(done){
+    let secureConnection;
+
+    var server = new RAIServer({timeout: 300, disconnectOnTimeout: true});
+    server.listen(PORT_NUMBER, function(err){
+
+
+      server.on("connect", function(socket){
+
+        socket.startTLS();
+        socket.on("tls", function(){
+          assert.ok(1, "Secure connection opened");
+          socket.send("TEST");
+        });
+
+        socket.on("timeout", function(){
+          assert.ok(1, "Timeout occurred");
+          server.end(function(){
+            try {
+              assert.ok(secureConnection, "secure connection");
+            } catch (err) {
+              return done(err);
+            }
+            return done();
+          });
+        });
+
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+      });
+
+      var sslcontext = crypto.createCredentials();
+
+      // This bit where we manually wrap a socket
+      // and then call connect on the wrapped socket
+      // is a workaround for a nodeJS issue where
+      // end events aren't properly being triggered
+      // by sockets connected via tls.connect
+      // See: https://github.com/nodejs/node/issues/10871
+      var socket = new netlib.Socket();
+      var tlsOptions = {
+        port: PORT_NUMBER,
+        socket: socket,
+        secureContext: sslcontext
+      };
+      var client = tlslib.connect(tlsOptions);
+      socket.connect({
+        port: PORT_NUMBER
+      });
+
+
+      client.on("secureConnect", function(){
+        secureConnection = true;
+      });
+
+      socket.on('end', function() {
+        socket.end();
+      });
+
+    });
+  });
+});
+
+describe('Client Mockup', function() {
+  it('All command', function(done){
+    var server = new RAIServer();
+    server.listen(PORT_NUMBER, function(err){
+      server.on("connect", function(socket){
+        socket.send("220 Welcome");
+        socket.on("command", function(command, payload){
+          switch(command) {
+            case "HELO": socket.send("250 HI"); break;
+            case "NOOP": socket.send("250 OK"); break;
+            case "QUIT": socket.send("221 Bye"); socket.end(); break;
+            default: socket.send("500");
+          }
+        });
+
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+      });
+
+      var cmds = ["HELO", "NOOP", "QUIT"];
+      runClientMockup(PORT_NUMBER, "localhost", cmds, function(lastResponse, allResponses){
+        allResponses = allResponses.map(function(value) { return value.toString("utf-8"); });
+        try {
+          assert.deepEqual(allResponses, [ "220 Welcome\r\n", "250 HI\r\n", "250 OK\r\n", "221 Bye\r\n" ]);
+        } catch (err) {
+          return done(err);
+        }
+        server.end(function(){
+          return done();
+        });
+
+      });
+
+    });
+  });
+  it('Last commands', function(done){
+    var server = new RAIServer();
+    server.listen(PORT_NUMBER, function(err){
+      server.on("connect", function(socket){
+        socket.send("220 HI");
+        socket.on("command", function(command, payload){
+          switch(command) {
+            case "HELO": socket.send("250 HI"); break;
+            case "NOOP": socket.send("250 OK"); break;
+            case "QUIT": socket.send("221 Bye"); socket.end(); break;
+            default: socket.send("500");
+          }
+        });
+
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+      });
+
+      var cmds = ["HELO", "NOOP", "QUIT"];
+      runClientMockup(PORT_NUMBER, "localhost", cmds, function(lastResponse){
+        try {
+          assert.equal(lastResponse.toString("utf-8"), "221 Bye\r\n");
+        } catch (err) {
+          return done(err);
+        }
+        server.end(function(){
+          return done();
+        });
+
+      });
+
+    });
+  });
+  it('All command(STARTTLS)', function(done){
+    var server = new RAIServer();
+    server.listen(PORT_NUMBER, function(err){
+
+      server.on("connect", function(socket){
+        socket.tlsStatus = 0;
+        socket.send("220 Welcome");
+        socket.on("command", function(command, payload){
+          switch(command){
+            case "EHLO":
+              if(socket.tlsStatus===0){
+                socket.send("250-HI\r\n250 STARTTLS");
+              }else{
+                socket.send("250 HI");
+              }
+              break;
+            case "NOOP": socket.send("250 OK"); break;
+            case "QUIT": socket.send("221 Bye"); socket.end(); break;
+            case "STARTTLS": socket.startTLS(); socket.send("220 Go ahead"); break;
+            default: socket.send("500");
+          }
+        });
+
+        socket.on("tls", function(){
+          assert.ok(1, "Secure connection opened");
+          socket.tlsStatus = 1;
+        });
+
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+      });
+
+      var cmds = ["EHLO", "STARTTLS", "EHLO", "NOOP", "QUIT"];
+      runClientMockup(PORT_NUMBER, "localhost", cmds, function(lastResponse, allResponses){
+        allResponses = allResponses.map(function(value) { return value.toString("utf-8"); });
+        try {
+          assert.deepEqual(allResponses, ["220 Welcome\r\n", "250-HI\r\n250 STARTTLS\r\n", "220 Go ahead\r\n",
+                                          "250 HI\r\n", "250 OK\r\n", "221 Bye\r\n" ]);
+        } catch (err) {
+          return done(err);
+        }
+        server.end(function(){
+          return done();
+        });
+
+      });
+
+    });
+  });
+  it('Last commands(STARTTLS)', function(done){
+    var server = new RAIServer();
+    server.listen(PORT_NUMBER, function(err){
+
+      server.on("connect", function(socket){
+        socket.tlsStatus = 0;
+        socket.send("220 Welcome");
+        socket.on("command", function(command, payload){
+          switch(command){
+            case "EHLO":
+              if(socket.tlsStatus===0){
+                socket.send("250-HI\r\n250 STARTTLS");
+              }else{
+                socket.send("250 HI");
+              }
+              break;
+            case "NOOP": socket.send("250 OK"); break;
+            case "QUIT": socket.send("221 Bye"); socket.end(); break;
+            case "STARTTLS": socket.startTLS(); socket.send("220 Go ahead"); break;
+            default: socket.send("500");
+          }
+        });
+
+        socket.on("tls", function(){
+          assert.ok(1, "Secure connection opened");
+          socket.tlsStatus = 1;
+        });
+
+        socket.on("error", function(err){
+          if (err) return done(err);
+        });
+      });
+
+      var cmds = ["EHLO", "STARTTLS", "EHLO", "NOOP", "QUIT"];
+      runClientMockup(PORT_NUMBER, "localhost", cmds, function(lastResponse){
+        try {
+          assert.equal(lastResponse.toString("utf-8"), "221 Bye\r\n");
+        } catch (err) {
+          return done(err);
+        }
+        server.end(function(){
+          done();
+        });
+
+      });
+
+    });
+  });
+});
